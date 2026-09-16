@@ -38,7 +38,7 @@ bool BTN_UP, BTN_DOWN,BTN_MENU,BTN_GO;
 bool BTN_UP_RISING, BTN_DOWN_RISING,BTN_MENU_RISING,BTN_GO_RISING; 
 bool CONTINOUS_GO = false;
 
-bool dutyCycleMode = false; //True = dutyCycleMode, False = currentMode
+bool dutyCycleMode = true; //True = dutyCycleMode, False = currentMode
 
 float throttle = 0;
 float throttle_increment = 0.1;
@@ -297,23 +297,10 @@ void printOnLCD()
   //MotorWindungen = 9 
   //2.145m/(10.838*60)=0.0032985790 * 3.6 / 9  = 0.001319431629 --> RPM TO KMH
 
-  /*
-  Angaben Zum Motor (Aliexpress https://de.aliexpress.com/item/487279294.html)
-  motor	n6374/09
-  kv( rpm/v)	170
-  Leistung( w)3250
-  draht Winde	9
-  Widerstand( m& Omega;)	50
-  Ruhestrom( a)	1.9
-  Wellendurchmesser a( mm)	10
-  esc( a)	100
-  motor Länge b( mm)	77
-  motor Durchmesser c( mm)	63
-  Zellen li-po	4-10
-  grundlegende Länge T( mm)	55
-  Gesamtlänge e( mm)	102
-  */
-  speed_kmh = vesc.data.rpm*(double)0.001319431629;
+  //Airwheel motor:
+  //D=0.325m, 15 pole pairs
+  // kmh = (rpm*pi*D*60)/(15*1000)=rpm*(3.14159265359×0.325×60)/(15×1000)=rpm*0.004084070450
+  speed_kmh = vesc.data.rpm*(double)0.004084070450;
   dtostrf(speed_kmh, 3, 0, stringBuf);
   tft.setCursor(30, 90);
   tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
@@ -350,7 +337,9 @@ void writeThrottleToVescIfGoPressed()
   {
       if(dutyCycleMode)
       {
-          vesc.setDuty(throttle);
+          // vesc.setDuty(throttle);
+          vesc.nunchuck.valueY = (throttle * 127) + 127;
+          vesc.setNunchuckValues();
       }
       else
       {
@@ -359,7 +348,16 @@ void writeThrottleToVescIfGoPressed()
   }
   else
   {
-    vesc.setDuty(0);
+    if(dutyCycleMode)
+    {
+        // vesc.setDuty(throttle);
+        vesc.nunchuck.valueY = 127;
+        vesc.setNunchuckValues();
+    }
+    else
+    {
+        vesc.setDuty(0);
+    }   
   }    
 }
 
