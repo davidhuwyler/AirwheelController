@@ -261,6 +261,40 @@ void VescUart::setCurrent(float current) {
 	buffer_append_int32(payload, (int32_t)(current * 1000), &index);
 
 	packSendPayload(payload, 5);
+	rampedCurrent = current;
+	currentRampInitialized = true;
+	lastCurrentRampMillis = millis();
+}
+
+void VescUart::setCurrentRamp(float targetCurrent, float rampRate) {
+	unsigned long now = millis();
+
+	if (!currentRampInitialized) {
+		rampedCurrent = 0;
+		lastCurrentRampMillis = now;
+		currentRampInitialized = true;
+	}
+
+	if (rampRate <= 0) {
+		setCurrent(targetCurrent);
+		return;
+	}
+
+	unsigned long elapsedMillis = now - lastCurrentRampMillis;
+	float maxChange = rampRate * (elapsedMillis / 1000.0f);
+	float difference = targetCurrent - rampedCurrent;
+
+	if (difference > maxChange) {
+		rampedCurrent += maxChange;
+	}
+	else if (difference < -maxChange) {
+		rampedCurrent -= maxChange;
+	}
+	else {
+		rampedCurrent = targetCurrent;
+	}
+
+	setCurrent(rampedCurrent);
 }
 
 void VescUart::setBrakeCurrent(float brakeCurrent) {
