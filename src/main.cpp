@@ -47,9 +47,9 @@ float throttle_currentMode_max_current_amps = 50;
 float throttle_currentMode_ramp_rate_amps_per_second = 5;
 
 // Speed PID output is a normalized current request.
-const float speed_pid_kp = 0.20;
+const float speed_pid_kp = 0.08;
 const float speed_pid_ki = 0.08;
-const float speed_pid_kd = 0.01;
+const float speed_pid_kd = 0.015;
 float speed_pid_integral = 0;
 float speed_pid_last_speed_kmh = 0;
 unsigned long speed_pid_last_update_ms = 0;
@@ -391,6 +391,7 @@ void writeThrottleToVescIfGoPressed()
   speed_pid_integral = constrain(speed_pid_integral, -throttle_max, throttle_max);
 
   throttle = output;
+
   vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
                       throttle_currentMode_ramp_rate_amps_per_second);
 
