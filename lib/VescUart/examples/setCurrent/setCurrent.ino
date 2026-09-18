@@ -11,6 +11,7 @@
 VescUart UART;
 
 float current = 1.0; /** The current in amps */
+float rampRate = 10.0; /** Maximum current change in amps per second */
 
 void setup() {
   Serial.begin(9600);
@@ -25,8 +26,8 @@ void setup() {
 
 void loop() {
   
-  /** Call the function setCurrent() to set the motor current */
-  UART.setCurrent(current);
+  /** Call the function setCurrentRamp() periodically to ramp the motor current */
+  UART.setCurrentRamp(current, rampRate);
 
   // UART.setBrakeCurrent(current);
   
