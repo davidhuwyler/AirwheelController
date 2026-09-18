@@ -35,6 +35,9 @@ int VescUart::receiveUartMessage(uint8_t * payloadReceived) {
 
 		while (serialPort->available()) {
 
+			if (counter >= sizeof(messageReceived)) {
+				return 0;
+			}
 			messageReceived[counter++] = serialPort->read();
 
 			if (counter == 2) {
@@ -44,6 +47,9 @@ int VescUart::receiveUartMessage(uint8_t * payloadReceived) {
 					case 2:
 						endMessage = messageReceived[1] + 5; //Payload size + 2 for sice + 3 for SRC and End.
 						lenPayload = messageReceived[1];
+						if (endMessage > sizeof(messageReceived)) {
+							return 0;
+						}
 					break;
 
 					case 3:
@@ -61,12 +67,7 @@ int VescUart::receiveUartMessage(uint8_t * payloadReceived) {
 				}
 			}
 
-			if (counter >= sizeof(messageReceived)) {
-				break;
-			}
-
 			if (counter == endMessage && messageReceived[endMessage - 1] == 3) {
-				messageReceived[endMessage] = 0;
 				if (debugPort != NULL) {
 					debugPort->println("End of message reached!");
 				}
@@ -136,6 +137,10 @@ bool VescUart::unpackPayload(uint8_t * message, int lenMes, uint8_t * payload) {
 
 
 int VescUart::packSendPayload(uint8_t * payload, int lenPay) {
+
+	if (serialPort == NULL || lenPay < 0 || lenPay > 251) {
+		return 0;
+	}
 
 	uint16_t crcPayload = crc16(payload, lenPay);
 	int count = 0;
