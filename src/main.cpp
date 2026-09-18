@@ -60,6 +60,7 @@ float batteryVoltage = 0;
 #define SPEED_LIMIT 5
 bool speed_limit_enabled = true;
 float speed_kmh = 0;
+bool motor_stopped = false;
 
 #define nofBatPercentageLookups 21
 #define batPercentageIncrements 100/(nofBatPercentageLookups-1)
@@ -333,11 +334,16 @@ void resetSpeedPid()
 
 void stopMotor()
 {
+  if(motor_stopped)
+  {
+    return;
+  }
+
   resetSpeedPid();
-  // Reset the VESC current-ramp state as well as the motor output. Otherwise
-  // the next ramp can start from a stale signed current.
+  // Keep the VESC in current-control mode. Sending a duty command as well
+  // would make the two control modes fight each other at idle.
   vesc.setCurrent(0);
-  vesc.setDuty(0);
+  motor_stopped = true;
 }
 
 void writeThrottleToVescIfGoPressed()
@@ -349,6 +355,8 @@ void writeThrottleToVescIfGoPressed()
     stopMotor();
     return;
   }
+
+  motor_stopped = false;
 
   // Do not let the VESC direction sign turn a reverse-direction reading into
   // an ever-increasing speed request.
