@@ -38,7 +38,6 @@ bool BTN_UP, BTN_DOWN,BTN_MENU,BTN_GO;
 bool BTN_UP_RISING, BTN_DOWN_RISING,BTN_MENU_RISING,BTN_GO_RISING; 
 bool CONTINOUS_GO = false;
 
-bool dutyCycleMode = true; //True = dutyCycleMode, False = currentMode
 
 float throttle = 0;
 float throttle_increment = 0.1;
@@ -159,13 +158,6 @@ void setContinousGoIfBtnCombo()
     }
 }
 
-void toggleDutyCycleMode(bool doToggle)
-{
-  if(doToggle)
-  {
-    dutyCycleMode = !dutyCycleMode;
-  }
-}
 
 void setThrottleAccordingButtons()
 {
@@ -249,24 +241,12 @@ void printOnLCD()
   char stringBuf[10];
 
   //Throttle  
-  if(dutyCycleMode)
-  {
-    dtostrf(throttle*100, 3, 0, stringBuf);
-    strcat(stringBuf, "%");
-    tft.setCursor(5, 20);
-    tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
-    tft.setTextSize(3);
-    tft.println(stringBuf);
-  }
-  else
-  {
-    dtostrf(throttle*throttle_currentMode_max_current_amps, 3, 0, stringBuf);
-    strcat(stringBuf, "A");
-    tft.setCursor(5, 20);
-    tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
-    tft.setTextSize(3);
-    tft.println(stringBuf);
-  }
+  dtostrf(throttle*throttle_currentMode_max_current_amps, 3, 0, stringBuf);
+  strcat(stringBuf, "A");
+  tft.setCursor(5, 20);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(3);
+  tft.println(stringBuf);
 
   //Battery Voltage
   dtostrf(vesc.data.inpVoltage, 3, 0, stringBuf);
@@ -335,29 +315,11 @@ void writeThrottleToVescIfGoPressed()
 {
   if((speed_kmh < SPEED_LIMIT  || !speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
   {
-      if(dutyCycleMode)
-      {
-          // vesc.setDuty(throttle);
-          vesc.nunchuck.valueY = (throttle * 127) + 127;
-          vesc.setNunchuckValues();
-      }
-      else
-      {
-          vesc.setCurrent(throttle*throttle_currentMode_max_current_amps);
-      }     
+      vesc.setCurrent(throttle*throttle_currentMode_max_current_amps);  
   }
   else
   {
-    if(dutyCycleMode)
-    {
-        // vesc.setDuty(throttle);
-        vesc.nunchuck.valueY = 127;
-        vesc.setNunchuckValues();
-    }
-    else
-    {
-        vesc.setDuty(0);
-    }   
+    vesc.setDuty(0); 
   }    
 }
 
@@ -410,7 +372,6 @@ void disableSpeedLimitIfBtnCombo(void)
 void loop() {
   readButtons();
   setContinousGoIfBtnCombo();
-  //toggleDutyCycleMode(BTN_MENU_RISING); //Menu Button does no longer exist
   setThrottleAccordingButtons();
   if ( vesc.getVescValues() ) 
   {
