@@ -290,7 +290,8 @@ void printOnLCD()
   //Airwheel motor:
   //D=0.325m, 15 pole pairs
   // kmh = (rpm*pi*D*60)/(15*1000)=rpm*(3.14159265359×0.325×60)/(15×1000)=rpm*0.004084070450
-  speed_kmh = vesc.data.rpm*(double)0.004084070450;
+  // RPM is signed by motor direction; the speed limit applies to magnitude.
+  speed_kmh = abs(vesc.data.rpm)*(float)0.004084070450;
   dtostrf(speed_kmh, 3, 0, stringBuf);
   tft.setCursor(30, 90);
   tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
@@ -330,18 +331,28 @@ void resetSpeedPid()
   throttle = 0;
 }
 
+void stopMotor()
+{
+  resetSpeedPid();
+  // Reset the VESC current-ramp state as well as the motor output. Otherwise
+  // the next ramp can start from a stale signed current.
+  vesc.setCurrent(0);
+  vesc.setDuty(0);
+}
+
 void writeThrottleToVescIfGoPressed()
 {
   const bool go_pressed = BTN_GO || CONTINOUS_GO;
 
   if(!go_pressed)
   {
-    resetSpeedPid();
-    vesc.setDuty(0);
+    stopMotor();
     return;
   }
 
-  speed_kmh = vesc.data.rpm * (float)0.004084070450;
+  // Do not let the VESC direction sign turn a reverse-direction reading into
+  // an ever-increasing speed request.
+  speed_kmh = abs(vesc.data.rpm) * (float)0.004084070450;
 
   if(!speed_limit_enabled)
   {
@@ -390,7 +401,7 @@ void writeThrottleToVescIfGoPressed()
   }
   speed_pid_integral = constrain(speed_pid_integral, -throttle_max, throttle_max);
 
-  throttle = output;
+  throttle = constrain(output, 0.0, throttle_max);
   vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
                       throttle_currentMode_ramp_rate_amps_per_second);
 
@@ -452,7 +463,7 @@ void loop() {
   }
   else
   {
-    vesc.setDuty(0);
+    stopMotor();
     errorBlink();
   }
   //printState(); //Only For debugging!
