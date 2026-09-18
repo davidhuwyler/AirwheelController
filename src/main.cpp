@@ -54,6 +54,7 @@ float speed_pid_integral = 0;
 float speed_pid_last_speed_kmh = 0;
 unsigned long speed_pid_last_update_ms = 0;
 bool speed_pid_initialized = false;
+bool motor_stop_command_sent = false;
 
 float batteryVoltage = 0;
 
@@ -333,11 +334,14 @@ void resetSpeedPid()
 
 void stopMotor()
 {
-  resetSpeedPid();
-  // Reset the VESC current-ramp state as well as the motor output. Otherwise
-  // the next ramp can start from a stale signed current.
-  vesc.setCurrent(0);
-  vesc.setDuty(0);
+  if(!motor_stop_command_sent)
+  {
+    resetSpeedPid();
+    // The controller uses current mode; do not switch modes by also sending
+    // a duty command. Repeated stop calls must not flood the UART.
+    vesc.setCurrent(0);
+    motor_stop_command_sent = true;
+  }
 }
 
 void writeThrottleToVescIfGoPressed()
@@ -351,8 +355,15 @@ void writeThrottleToVescIfGoPressed()
   }
 
   // Do not let the VESC direction sign turn a reverse-direction reading into
-  // an ever-increasing speed request.
-  speed_kmh = abs(vesc.data.rpm) * (float)0.004084070450;
+  // an ever-increasing speed request. Positive current is not a safe reverse
+  // drive command, so remove torque until the wheel is moving forward again.
+  if(vesc.data.rpm < 0)
+  {
+    stopMotor();
+    return;
+  }
+  motor_stop_command_sent = false;
+  speed_kmh = (float)vesc.data.rpm * (float)0.004084070450;
 
   if(!speed_limit_enabled)
   {
