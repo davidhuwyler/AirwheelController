@@ -73,6 +73,17 @@ class VescUart
 		void setCurrent(float current);
 
 		/**
+		 * @brief      Move the motor current towards a target at a fixed rate
+		 *
+		 * This function is non-blocking. It must be called periodically while
+		 * the current should be ramped.
+		 *
+		 * @param      targetCurrent  - The target current in amps
+		 * @param      rampRate       - Maximum change in amps per second
+		 */
+		void setCurrentRamp(float targetCurrent, float rampRate);
+
+		/**
 		 * @brief      Set the current to brake the motor
 		 * @param      brakeCurrent  - The current to apply
 		 */
@@ -103,6 +114,11 @@ class VescUart
 		/** Variabel to hold the reference to the Serial object to use for debugging. 
 		  * Uses the class Stream instead of HarwareSerial */
 		Stream* debugPort = NULL;
+
+		/** State used by the non-blocking current ramp */
+		float rampedCurrent = 0;
+		unsigned long lastCurrentRampMillis = 0;
+		bool currentRampInitialized = false;
 
 		/**
 		 * @brief      Packs the payload and sends it over Serial

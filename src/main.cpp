@@ -44,6 +44,7 @@ float throttle_increment = 0.1;
 float throttle_max = 1;
 float throttle_min = 0;
 float throttle_currentMode_max_current_amps = 50;
+float throttle_currentMode_ramp_rate_amps_per_second = 20;
 
 float batteryVoltage = 0;
 
@@ -315,7 +316,8 @@ void writeThrottleToVescIfGoPressed()
 {
   if((speed_kmh < SPEED_LIMIT  || !speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
   {
-      vesc.setCurrent(throttle*throttle_currentMode_max_current_amps);  
+    vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
+                        throttle_currentMode_ramp_rate_amps_per_second);
   }
   else
   {
