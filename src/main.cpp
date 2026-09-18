@@ -38,18 +38,18 @@ bool BTN_UP, BTN_DOWN,BTN_MENU,BTN_GO;
 bool BTN_UP_RISING, BTN_DOWN_RISING,BTN_MENU_RISING,BTN_GO_RISING; 
 bool CONTINOUS_GO = false;
 
-
 float throttle = 0;
-float throttle_increment = 0.1;
+float throttle_setpoint = 0;
+float throttle_increment = 0.02;
 float throttle_max = 1;
 float throttle_min = 0;
 float throttle_currentMode_max_current_amps = 50;
-float throttle_currentMode_ramp_rate_amps_per_second = 20;
+float throttle_currentMode_ramp_rate_amps_per_second = 10;
 
 float batteryVoltage = 0;
 
-#define SPEED_LIMIT 25
-bool speed_limit_enabled = true;
+#define SPEED_LIMIT 5
+bool speed_limit_enabled = false;
 float speed_kmh = 0;
 
 #define nofBatPercentageLookups 21
@@ -164,16 +164,16 @@ void setThrottleAccordingButtons()
 {
   if(BTN_UP_RISING)
   {
-    if(throttle + throttle_increment <= throttle_max+0.01)
+    if(throttle_setpoint + throttle_increment <= throttle_max+0.01)
     {
-    throttle +=throttle_increment;
+    throttle_setpoint +=throttle_increment;
     }      
   }
   else if(BTN_DOWN_RISING)
   {
-    if(throttle - throttle_increment >= throttle_min)
+    if(throttle_setpoint - throttle_increment >= throttle_min)
     {
-    throttle -=throttle_increment;
+    throttle_setpoint -=throttle_increment;
     }      
   }
 }
@@ -190,7 +190,7 @@ void printState()
   Serial.print(BTN_GO);
 
   Serial.print(" Throttle:");
-  Serial.print(throttle);
+  Serial.print(throttle_setpoint);
   Serial.print("\n");
 }
 
@@ -242,7 +242,7 @@ void printOnLCD()
   char stringBuf[10];
 
   //Throttle  
-  dtostrf(throttle*throttle_currentMode_max_current_amps, 3, 0, stringBuf);
+  dtostrf(throttle_setpoint*throttle_currentMode_max_current_amps, 3, 0, stringBuf);
   strcat(stringBuf, "A");
   tft.setCursor(5, 20);
   tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
@@ -314,13 +314,20 @@ void errorBlink()
 
 void writeThrottleToVescIfGoPressed()
 {
-  if((speed_kmh < SPEED_LIMIT  || !speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
+  if((speed_kmh <= SPEED_LIMIT  || !speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
   {
     vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
                         throttle_currentMode_ramp_rate_amps_per_second);
   }
+  if((speed_kmh > SPEED_LIMIT && speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
+  {
+    throttle = throttle - throttle_increment;
+    vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
+                        throttle_currentMode_ramp_rate_amps_per_second/2);
+  }
   else
   {
+    throttle = throttle_setpoint;
     vesc.setDuty(0); 
   }    
 }
