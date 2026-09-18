@@ -44,12 +44,12 @@ float throttle_increment = 0.02;
 float throttle_max = 1;
 float throttle_min = 0;
 float throttle_currentMode_max_current_amps = 50;
-float throttle_currentMode_ramp_rate_amps_per_second = 10;
+float throttle_currentMode_ramp_rate_amps_per_second = 5;
 
 float batteryVoltage = 0;
 
 #define SPEED_LIMIT 5
-bool speed_limit_enabled = false;
+bool speed_limit_enabled = true;
 float speed_kmh = 0;
 
 #define nofBatPercentageLookups 21
@@ -316,12 +316,19 @@ void writeThrottleToVescIfGoPressed()
 {
   if((speed_kmh <= SPEED_LIMIT  || !speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
   {
+    if(throttle < throttle_setpoint)
+    {
+      throttle += 0.001;
+    }
+
     vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
                         throttle_currentMode_ramp_rate_amps_per_second);
+
+    //vesc.setCurrent(throttle*throttle_currentMode_max_current_amps);
   }
-  if((speed_kmh > SPEED_LIMIT && speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
+  else if((speed_kmh > SPEED_LIMIT && speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
   {
-    throttle = throttle - throttle_increment;
+    throttle -= 0.001;
     vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
                         throttle_currentMode_ramp_rate_amps_per_second/2);
   }
@@ -355,8 +362,6 @@ void disableSpeedLimitIfBtnCombo(void)
       timeStampNotAllButtonsPressed_ms = millis();
       timeAllButtonsPressed_ms = 0;
       toggled = false;
-      tft.fillCircle(10, 108, 5, ST7735_BLACK);
-      return;
     }  
 
     if(timeAllButtonsPressed_ms > 5000)
@@ -366,15 +371,15 @@ void disableSpeedLimitIfBtnCombo(void)
         speed_limit_enabled = !speed_limit_enabled;  
         toggled = true;   
       }
+    }
 
-      if(speed_limit_enabled)
-      {
-        tft.fillCircle(10, 108, 5, ST7735_RED);
-      }
-      else
-      {
-        tft.fillCircle(10, 108, 5, ST7735_GREEN);
-      }
+    if(speed_limit_enabled)
+    {
+      tft.fillCircle(10, 108, 5, ST7735_RED);
+    }
+    else
+    {
+      tft.fillCircle(10, 108, 5, ST7735_GREEN);
     }
 }
 
