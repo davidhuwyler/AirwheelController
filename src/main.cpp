@@ -46,6 +46,15 @@ float throttle_min = 0;
 float throttle_currentMode_max_current_amps = 50;
 float throttle_currentMode_ramp_rate_amps_per_second = 5;
 
+// Speed PID output is a normalized current request.
+const float speed_pid_kp = 0.20;
+const float speed_pid_ki = 0.08;
+const float speed_pid_kd = 0.01;
+float speed_pid_integral = 0;
+float speed_pid_last_speed_kmh = 0;
+unsigned long speed_pid_last_update_ms = 0;
+bool speed_pid_initialized = false;
+
 float batteryVoltage = 0;
 
 #define SPEED_LIMIT 5
@@ -312,31 +321,81 @@ void errorBlink()
   delay(200);
 }
 
+void resetSpeedPid()
+{
+  speed_pid_integral = 0;
+  speed_pid_last_speed_kmh = speed_kmh;
+  speed_pid_last_update_ms = millis();
+  speed_pid_initialized = false;
+  throttle = 0;
+}
+
 void writeThrottleToVescIfGoPressed()
 {
-  if((speed_kmh <= SPEED_LIMIT  || !speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
-  {
-    if(throttle < throttle_setpoint)
-    {
-      throttle += 0.001;
-    }
+  const bool go_pressed = BTN_GO || CONTINOUS_GO;
 
+  if(!go_pressed)
+  {
+    resetSpeedPid();
+    vesc.setDuty(0);
+    return;
+  }
+
+  speed_kmh = vesc.data.rpm * (float)0.004084070450;
+
+  if(!speed_limit_enabled)
+  {
+    resetSpeedPid();
+    throttle = throttle_setpoint;
     vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
                         throttle_currentMode_ramp_rate_amps_per_second);
+    return;
+  }
 
-    //vesc.setCurrent(throttle*throttle_currentMode_max_current_amps);
-  }
-  else if((speed_kmh > SPEED_LIMIT && speed_limit_enabled) && (BTN_GO || CONTINOUS_GO))
+  const unsigned long now_ms = millis();
+  float delta_time_s = (now_ms - speed_pid_last_update_ms) / 1000.0;
+  if(!speed_pid_initialized)
   {
-    throttle -= 0.001;
-    vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
-                        throttle_currentMode_ramp_rate_amps_per_second/2);
+    speed_pid_last_speed_kmh = speed_kmh;
+    speed_pid_last_update_ms = now_ms;
+    speed_pid_initialized = true;
+    delta_time_s = 0;
   }
-  else
+
+  // Ignore an unusually long loop interval rather than integrating a stale error.
+  if(delta_time_s < 0.001 || delta_time_s > 0.25)
   {
-    throttle = throttle_setpoint;
-    vesc.setDuty(0); 
-  }    
+    delta_time_s = 0;
+  }
+
+  const float error = SPEED_LIMIT - speed_kmh;
+  const float derivative = delta_time_s > 0
+                             ? (speed_pid_last_speed_kmh - speed_kmh) / delta_time_s
+                             : 0;
+  const float proportional = speed_pid_kp * error;
+  const float derivative_term = speed_pid_kd * derivative;
+  const float integral_candidate = speed_pid_integral +
+                                   speed_pid_ki * error * delta_time_s;
+  const float requested_output = proportional + integral_candidate + derivative_term;
+  const float output_max = constrain(throttle_setpoint, throttle_min, throttle_max);
+  const float output = constrain(requested_output, 0.0, output_max);
+
+  // Only integrate while unsaturated, or when the error would move the output
+  // back toward the available range.
+  if(requested_output == output ||
+     (requested_output > output_max && error < 0) ||
+     (requested_output < 0 && error > 0))
+  {
+    speed_pid_integral = integral_candidate;
+  }
+  speed_pid_integral = constrain(speed_pid_integral, -throttle_max, throttle_max);
+
+  throttle = output;
+  vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
+                      throttle_currentMode_ramp_rate_amps_per_second);
+
+  speed_pid_last_speed_kmh = speed_kmh;
+  speed_pid_last_update_ms = now_ms;
 }
 
 /*
