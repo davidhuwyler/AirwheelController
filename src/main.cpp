@@ -47,9 +47,9 @@ float throttle_currentMode_max_current_amps = 50;
 float throttle_currentMode_ramp_rate_amps_per_second = 5;
 
 // Speed PID output is a normalized current request.
-const float speed_pid_kp = 0.08;
-const float speed_pid_ki = 0.08;
-const float speed_pid_kd = 0.015;
+const float speed_pid_kp = 0.06;
+const float speed_pid_ki = 0.04;
+const float speed_pid_kd = 0.005;
 float speed_pid_integral = 0;
 float speed_pid_last_speed_kmh = 0;
 unsigned long speed_pid_last_update_ms = 0;
@@ -340,7 +340,7 @@ void stopMotor()
     resetSpeedPid();
     // The controller uses current mode; do not switch modes by also sending
     // a duty command. Repeated stop calls must not flood the UART.
-    vesc.setCurrent(0);
+    vesc.setDuty(0);
     motor_stop_command_sent = true;
   }
 }
