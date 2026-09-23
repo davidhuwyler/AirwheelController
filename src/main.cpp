@@ -4,7 +4,7 @@
   There are 3 Buttons:
     GO: Starts the Motor
     UP: Increases the motor current if GO (or continous mode) is Only
-    DOWN: Decreases the motor current
+    DOWN: Decreases the motor current. Holding it below zero selects reverse.
 
   Continous GO:
   In order to be able to release the GO button and still power the motor,
@@ -42,7 +42,7 @@ float throttle = 0;
 float throttle_setpoint = 0;
 float throttle_increment = 0.02;
 float throttle_max = 1;
-float throttle_min = 0;
+float throttle_min = -1;
 float throttle_currentMode_max_current_amps = 50;
 float throttle_currentMode_ramp_rate_amps_per_second = 5;
 
@@ -58,7 +58,8 @@ bool motor_stop_command_sent = false;
 
 float batteryVoltage = 0;
 
-#define SPEED_LIMIT 5
+const float forward_speed_limit_kmh = 5;
+const float reverse_speed_limit_kmh = -5;
 bool speed_limit_enabled = true;
 float speed_kmh = 0;
 bool motor_stopped = false;
@@ -292,8 +293,8 @@ void printOnLCD()
   //Airwheel motor:
   //D=0.325m, 15 pole pairs
   // kmh = (rpm*pi*D*60)/(15*1000)=rpm*(3.14159265359×0.325×60)/(15×1000)=rpm*0.004084070450
-  // RPM is signed by motor direction; the speed limit applies to magnitude.
-  speed_kmh = abs(vesc.data.rpm)*(float)0.004084070450;
+  // RPM and speed are signed by motor direction.
+  speed_kmh = vesc.data.rpm*(float)0.004084070450;
   dtostrf(speed_kmh, 3, 0, stringBuf);
   tft.setCursor(30, 90);
   tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
@@ -357,14 +358,6 @@ void writeThrottleToVescIfGoPressed()
 
   motor_stopped = false;
 
-  // Do not let the VESC direction sign turn a reverse-direction reading into
-  // an ever-increasing speed request. Positive current is not a safe reverse
-  // drive command, so remove torque until the wheel is moving forward again.
-  if(vesc.data.rpm < 0)
-  {
-    stopMotor();
-    return;
-  }
   motor_stop_command_sent = false;
   speed_kmh = (float)vesc.data.rpm * (float)0.004084070450;
 
@@ -375,6 +368,18 @@ void writeThrottleToVescIfGoPressed()
     vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
                         throttle_currentMode_ramp_rate_amps_per_second);
     return;
+  }
+
+  const int throttle_direction = throttle_setpoint < 0 ? -1 : 1;
+  const float speed_limit_kmh = throttle_direction < 0
+                                  ? reverse_speed_limit_kmh
+                                  : forward_speed_limit_kmh;
+  static int previous_throttle_direction = 1;
+  if(throttle_direction != previous_throttle_direction)
+  {
+    speed_pid_integral = 0;
+    speed_pid_initialized = false;
+    previous_throttle_direction = throttle_direction;
   }
 
   const unsigned long now_ms = millis();
@@ -393,29 +398,31 @@ void writeThrottleToVescIfGoPressed()
     delta_time_s = 0;
   }
 
-  const float error = SPEED_LIMIT - speed_kmh;
+  const float error = speed_limit_kmh - speed_kmh;
   const float derivative = delta_time_s > 0
-                             ? (speed_pid_last_speed_kmh - speed_kmh) / delta_time_s
-                             : 0;
+                           ? (speed_pid_last_speed_kmh - speed_kmh) / delta_time_s
+                           : 0;
   const float proportional = speed_pid_kp * error;
   const float derivative_term = speed_pid_kd * derivative;
   const float integral_candidate = speed_pid_integral +
                                    speed_pid_ki * error * delta_time_s;
   const float requested_output = proportional + integral_candidate + derivative_term;
-  const float output_max = constrain(throttle_setpoint, throttle_min, throttle_max);
-  const float output = constrain(requested_output, 0.0, output_max);
+  const float output_max = abs(throttle_setpoint);
+  const float output_min = throttle_direction < 0 ? -output_max : 0;
+  const float output_limit = throttle_direction < 0 ? 0 : output_max;
+  const float output = constrain(requested_output, output_min, output_limit);
 
   // Only integrate while unsaturated, or when the error would move the output
   // back toward the available range.
   if(requested_output == output ||
-     (requested_output > output_max && error < 0) ||
-     (requested_output < 0 && error > 0))
+     (requested_output > output_limit && error < 0) ||
+     (requested_output < output_min && error > 0))
   {
     speed_pid_integral = integral_candidate;
   }
   speed_pid_integral = constrain(speed_pid_integral, -throttle_max, throttle_max);
 
-  throttle = constrain(output, 0.0, throttle_max);
+  throttle = constrain(output, -throttle_max, throttle_max);
   vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
                       throttle_currentMode_ramp_rate_amps_per_second);
 
