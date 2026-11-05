@@ -25,6 +25,7 @@
 #define BTN_DOWN_PIN 12
 #define BTN_MENU_PIN 8 //Does no longer exist...
 #define BTN_GO_PIN 3
+#define BTN_STOP_PIN 18
 
 #define TFT_CS     7
 #define TFT_RST    9  // You can also connect this to the Arduino reset in which case, set this #define pin to -1!
@@ -34,8 +35,8 @@ VescUart vesc;
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
-bool BTN_UP, BTN_DOWN,BTN_MENU,BTN_GO; 
-bool BTN_UP_RISING, BTN_DOWN_RISING,BTN_MENU_RISING,BTN_GO_RISING; 
+bool BTN_UP, BTN_DOWN,BTN_MENU,BTN_GO,BTN_STOP; 
+bool BTN_UP_RISING, BTN_DOWN_RISING,BTN_MENU_RISING,BTN_GO_RISING, BTN_STOP_RISING; 
 bool CONTINOUS_GO = false;
 
 float throttle = 0;
@@ -118,6 +119,7 @@ void setup() {
   pinMode( BTN_DOWN_PIN, INPUT_PULLUP );
   pinMode( BTN_MENU_PIN, INPUT_PULLUP );
   pinMode( BTN_GO_PIN, INPUT_PULLUP );
+  pinMode( BTN_STOP_PIN, INPUT_PULLUP );
   Serial.begin(115200);
 
   tft.initR(INITR_BLACKTAB);  // Initialize a ST7735S chip, black tab
@@ -131,21 +133,24 @@ void setup() {
 
 void readButtons()
 {
-    static bool last_UP_state,last_DOWN_state,last_MENU_state,last_GO_state;
+    static bool last_UP_state,last_DOWN_state,last_MENU_state,last_GO_state,last_STOP_state;
     last_UP_state = BTN_UP;
     last_DOWN_state = BTN_DOWN;
     last_MENU_state = BTN_MENU;
     last_GO_state = BTN_GO;
+    last_STOP_state = BTN_STOP; 
 
     BTN_UP = !digitalRead(BTN_UP_PIN);
     BTN_DOWN = !digitalRead(BTN_DOWN_PIN);
     BTN_MENU = !digitalRead(BTN_MENU_PIN);
     BTN_GO = !digitalRead(BTN_GO_PIN);
+    BTN_STOP = !digitalRead(BTN_STOP_PIN);
 
     if(!last_UP_state && BTN_UP){BTN_UP_RISING = true;} else{ BTN_UP_RISING = false;}
     if(!last_DOWN_state && BTN_DOWN){BTN_DOWN_RISING = true;} else{ BTN_DOWN_RISING = false;}
     if(!last_MENU_state && BTN_MENU){BTN_MENU_RISING = true;} else{ BTN_MENU_RISING = false;}
     if(!last_GO_state && BTN_GO){BTN_GO_RISING = true;} else{ BTN_GO_RISING = false;}
+    if(!last_STOP_state && BTN_STOP){BTN_STOP_RISING = true;} else{ BTN_STOP_RISING = false;}
 }
 
 /*
@@ -164,7 +169,7 @@ void setContinousGoIfBtnCombo()
         CONTINOUS_GO = true;
         BTN_UP_RISING = false;
     }
-    else if(BTN_GO_RISING)
+    else if(BTN_GO_RISING  || BTN_STOP_RISING)
     {
         CONTINOUS_GO = false;
     }
@@ -333,13 +338,21 @@ void resetSpeedPid()
   throttle = 0;
 }
 
+void freeWheelMotor()
+{
+  if(!motor_stop_command_sent)
+  {
+    resetSpeedPid();
+    vesc.setCurrent(0);
+    motor_stop_command_sent = true;
+  }
+}
+
 void stopMotor()
 {
   if(!motor_stop_command_sent)
   {
     resetSpeedPid();
-    // The controller uses current mode; do not switch modes by also sending
-    // a duty command. Repeated stop calls must not flood the UART.
     vesc.setDuty(0);
     motor_stop_command_sent = true;
   }
@@ -349,9 +362,16 @@ void writeThrottleToVescIfGoPressed()
 {
   const bool go_pressed = BTN_GO || CONTINOUS_GO;
 
-  if(!go_pressed)
+  if(BTN_STOP)
   {
     stopMotor();
+    return;
+  }
+
+
+  if(!go_pressed)
+  {
+    freeWheelMotor();
     return;
   }
 
