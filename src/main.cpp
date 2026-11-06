@@ -56,6 +56,7 @@ float speed_pid_last_speed_kmh = 0;
 unsigned long speed_pid_last_update_ms = 0;
 bool speed_pid_initialized = false;
 bool motor_stop_command_sent = false;
+bool motor_freewheel_command_sent = false;
 
 float batteryVoltage = 0;
 
@@ -340,11 +341,11 @@ void resetSpeedPid()
 
 void freeWheelMotor()
 {
-  if(!motor_stop_command_sent)
+  if(!motor_freewheel_command_sent)
   {
     resetSpeedPid();
     vesc.setCurrent(0);
-    motor_stop_command_sent = true;
+    motor_freewheel_command_sent = true;
   }
 }
 
@@ -386,6 +387,8 @@ void writeThrottleToVescIfGoPressed()
     return;
   }
   motor_stop_command_sent = false;
+  motor_freewheel_command_sent = false;
+
   speed_kmh = (float)vesc.data.rpm * (float)0.004084070450;
 
   if(!speed_limit_enabled)
@@ -493,10 +496,12 @@ void loop() {
   setThrottleAccordingButtons();
   if ( vesc.getVescValues() ) 
   {
+    delay(10); 
     writeThrottleToVescIfGoPressed();
   }
   else
   {
+    delay(10); 
     stopMotor();
     errorBlink();
   }
