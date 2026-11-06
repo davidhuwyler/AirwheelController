@@ -103,9 +103,16 @@ void setupStaticLCDitems()
   tft.setTextSize(1);
   tft.println(stringBuf);
 
-  //U_Bat  
+  //Speed kmh 
   strcpy(stringBuf, "kmh");
-  tft.setCursor(120, 110);
+  tft.setCursor(25, 110);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(2);
+  tft.println(stringBuf);
+
+  //Speed kmh 
+  strcpy(stringBuf, "Temp Contr.");
+  tft.setCursor(105, 110);
   tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
   tft.setTextSize(2);
   tft.println(stringBuf);
@@ -301,9 +308,15 @@ void printOnLCD()
   // RPM is signed by motor direction; the speed limit applies to magnitude.
   speed_kmh = abs(vesc.data.rpm)*(float)0.004084070450;
   dtostrf(speed_kmh, 3, 0, stringBuf);
-  tft.setCursor(30, 90);
+  tft.setCursor(5, 90);
   tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
   tft.setTextSize(4);
+  tft.println(stringBuf);
+
+  dtostrf(vesc.data.tempMosfet, 3, 0, stringBuf);
+  tft.setCursor(85, 90);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(3);
   tft.println(stringBuf);
 
   //indicateGo
