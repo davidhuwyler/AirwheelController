@@ -39,7 +39,6 @@ bool BTN_UP, BTN_DOWN,BTN_MENU,BTN_GO,BTN_STOP;
 bool BTN_UP_RISING, BTN_DOWN_RISING,BTN_MENU_RISING,BTN_GO_RISING, BTN_STOP_RISING; 
 bool CONTINOUS_GO = false;
 
-float throttle = 0;
 float throttle_setpoint = 0;
 float throttle_increment = 0.02;
 float throttle_max = 1;
@@ -61,9 +60,9 @@ bool motor_freewheel_command_sent = false;
 float batteryVoltage = 0;
 
 #define SPEED_LIMIT 5
+#define SPEED_LIMIT_ERPM (SPEED_LIMIT / 0.004084070450) // 5kmh /(float)0.004084070450
 bool speed_limit_enabled = true;
 float speed_kmh = 0;
-bool motor_stopped = false;
 
 #define nofBatPercentageLookups 21
 #define batPercentageIncrements 100/(nofBatPercentageLookups-1)
@@ -243,6 +242,7 @@ int getBatPercentage(float batVoltage)
             return minBatPercentage;
         }
     }
+    return 0;
 }
 
 /*
@@ -259,8 +259,8 @@ void printOnLCD()
   char stringBuf[10];
 
   //Throttle  
-  dtostrf(throttle_setpoint*throttle_currentMode_max_current_amps, 3, 0, stringBuf);
-  strcat(stringBuf, "A");
+  dtostrf(throttle_setpoint, 3, 0, stringBuf);
+  strcat(stringBuf, "%");
   tft.setCursor(5, 20);
   tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
   tft.setTextSize(3);
@@ -330,120 +330,28 @@ void errorBlink()
   delay(200);
 }
 
-void resetSpeedPid()
-{
-  speed_pid_integral = 0;
-  speed_pid_last_speed_kmh = speed_kmh;
-  speed_pid_last_update_ms = millis();
-  speed_pid_initialized = false;
-  throttle = 0;
-}
-
-void freeWheelMotor()
-{
-  if(!motor_freewheel_command_sent)
-  {
-    resetSpeedPid();
-    vesc.setCurrent(0);
-    motor_freewheel_command_sent = true;
-  }
-}
-
-void stopMotor()
-{
-  if(!motor_stop_command_sent)
-  {
-    resetSpeedPid();
-    vesc.setDuty(0);
-    motor_stop_command_sent = true;
-  }
-}
-
 void writeThrottleToVescIfGoPressed()
 {
   const bool go_pressed = BTN_GO || CONTINOUS_GO;
 
   if(BTN_STOP)
   {
-    stopMotor();
+    vesc.setDuty(0);
     return;
   }
-
 
   if(!go_pressed)
   {
-    freeWheelMotor();
+    vesc.setCurrent(0);
     return;
   }
-
-  motor_stopped = false;
-
-  // Do not let the VESC direction sign turn a reverse-direction reading into
-  // an ever-increasing speed request. Positive current is not a safe reverse
-  // drive command, so remove torque until the wheel is moving forward again.
-  if(vesc.data.rpm < 0)
-  {
-    stopMotor();
-    return;
-  }
-  motor_stop_command_sent = false;
-  motor_freewheel_command_sent = false;
 
   speed_kmh = (float)vesc.data.rpm * (float)0.004084070450;
-
-  if(!speed_limit_enabled)
+  if(speed_limit_enabled && speed_kmh >= SPEED_LIMIT)
   {
-    resetSpeedPid();
-    throttle = throttle_setpoint;
-    vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
-                        throttle_currentMode_ramp_rate_amps_per_second);
-    return;
+    vesc.setRPM(SPEED_LIMIT_ERPM);
   }
-
-  const unsigned long now_ms = millis();
-  float delta_time_s = (now_ms - speed_pid_last_update_ms) / 1000.0;
-  if(!speed_pid_initialized)
-  {
-    speed_pid_last_speed_kmh = speed_kmh;
-    speed_pid_last_update_ms = now_ms;
-    speed_pid_initialized = true;
-    delta_time_s = 0;
-  }
-
-  // Ignore an unusually long loop interval rather than integrating a stale error.
-  if(delta_time_s < 0.001 || delta_time_s > 0.25)
-  {
-    delta_time_s = 0;
-  }
-
-  const float error = SPEED_LIMIT - speed_kmh;
-  const float derivative = delta_time_s > 0
-                             ? (speed_pid_last_speed_kmh - speed_kmh) / delta_time_s
-                             : 0;
-  const float proportional = speed_pid_kp * error;
-  const float derivative_term = speed_pid_kd * derivative;
-  const float integral_candidate = speed_pid_integral +
-                                   speed_pid_ki * error * delta_time_s;
-  const float requested_output = proportional + integral_candidate + derivative_term;
-  const float output_max = constrain(throttle_setpoint, throttle_min, throttle_max);
-  const float output = constrain(requested_output, 0.0, output_max);
-
-  // Only integrate while unsaturated, or when the error would move the output
-  // back toward the available range.
-  if(requested_output == output ||
-     (requested_output > output_max && error < 0) ||
-     (requested_output < 0 && error > 0))
-  {
-    speed_pid_integral = integral_candidate;
-  }
-  speed_pid_integral = constrain(speed_pid_integral, -throttle_max, throttle_max);
-
-  throttle = constrain(output, 0.0, throttle_max);
-  vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
-                      throttle_currentMode_ramp_rate_amps_per_second);
-
-  speed_pid_last_speed_kmh = speed_kmh;
-  speed_pid_last_update_ms = now_ms;
+  vesc.setDuty(throttle_setpoint);
 }
 
 /*
@@ -496,17 +404,17 @@ void loop() {
   setThrottleAccordingButtons();
   if ( vesc.getVescValues() ) 
   {
-    delay(10); 
+    delay(20); 
     writeThrottleToVescIfGoPressed();
   }
   else
   {
-    delay(10); 
-    stopMotor();
+    delay(20); 
+    vesc.setDuty(0);
     errorBlink();
   }
   //printState(); //Only For debugging!
   printOnLCD();
   disableSpeedLimitIfBtnCombo();
-  //delay(5);              
+  delay(20);            
 }

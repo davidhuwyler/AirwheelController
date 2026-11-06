@@ -1,0 +1,513 @@
+/*
+  E-Bike Controller Software
+
+  There are 3 Buttons:
+    GO: Starts the Motor
+    UP: Increases the motor current if GO (or continous mode) is Only
+    DOWN: Decreases the motor current
+
+  Continous GO:
+  In order to be able to release the GO button and still power the motor,
+  the Continous GO mode was implemented:
+  Start Continous GO:
+  Press the GO Button + Press the UP Button (GO must be first)
+  Stop Continous GO:
+  Press the GO Button
+*/
+
+#include <Arduino.h>
+#include <VescUart.h>
+
+#include <Adafruit_GFX.h>  // Include core graphics library
+#include <Adafruit_ST7735.h>  // Include Adafruit_ST7735 library to drive the display
+
+#define BTN_UP_PIN 2
+#define BTN_DOWN_PIN 12
+#define BTN_MENU_PIN 8 //Does no longer exist...
+#define BTN_GO_PIN 3
+#define BTN_STOP_PIN 18
+
+#define TFT_CS     7
+#define TFT_RST    9  // You can also connect this to the Arduino reset in which case, set this #define pin to -1!
+#define TFT_DC     10
+
+VescUart vesc;
+
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+
+bool BTN_UP, BTN_DOWN,BTN_MENU,BTN_GO,BTN_STOP; 
+bool BTN_UP_RISING, BTN_DOWN_RISING,BTN_MENU_RISING,BTN_GO_RISING, BTN_STOP_RISING; 
+bool CONTINOUS_GO = false;
+
+float throttle = 0;
+float throttle_setpoint = 0;
+float throttle_increment = 0.02;
+float throttle_max = 1;
+float throttle_min = 0;
+float throttle_currentMode_max_current_amps = 50;
+float throttle_currentMode_ramp_rate_amps_per_second = 5;
+
+// Speed PID output is a normalized current request.
+const float speed_pid_kp = 0.06;
+const float speed_pid_ki = 0.04;
+const float speed_pid_kd = 0.005;
+float speed_pid_integral = 0;
+float speed_pid_last_speed_kmh = 0;
+unsigned long speed_pid_last_update_ms = 0;
+bool speed_pid_initialized = false;
+bool motor_stop_command_sent = false;
+bool motor_freewheel_command_sent = false;
+
+float batteryVoltage = 0;
+
+#define SPEED_LIMIT 5
+bool speed_limit_enabled = true;
+float speed_kmh = 0;
+bool motor_stopped = false;
+
+#define nofBatPercentageLookups 21
+#define batPercentageIncrements 100/(nofBatPercentageLookups-1)
+#define maxBatPercentage 100
+#define minBatPercentage 0
+const float batVoltageLookup[nofBatPercentageLookups] = {33.1,36.8,36.9,37.1,37.4,37.6,37.7,37.8,37.9,38.1,
+                                                         38.2,38.4,38.8,39.2,39.5,39.8,40.0,40.5,40.9,41.3,41.8};
+
+void setupStaticLCDitems()
+{
+  char stringBuf[10];
+
+  //Power %  
+  strcpy(stringBuf, "Power");
+  tft.setCursor(25, 8);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(1);
+  tft.println(stringBuf);
+
+  //U_Bat  
+  strcpy(stringBuf, "U Bat");
+  tft.setCursor(25, 50);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(1);
+  tft.println(stringBuf);
+
+  //Amps %  
+  strcpy(stringBuf, "Amps");
+  tft.setCursor(105, 8);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(1);
+  tft.println(stringBuf);
+
+  //U_Bat  
+  strcpy(stringBuf, "% Bat");
+  tft.setCursor(105, 50);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(1);
+  tft.println(stringBuf);
+
+  //U_Bat  
+  strcpy(stringBuf, "kmh");
+  tft.setCursor(120, 110);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(2);
+  tft.println(stringBuf);
+
+}
+
+
+void setup() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode( BTN_UP_PIN, INPUT_PULLUP );
+  pinMode( BTN_DOWN_PIN, INPUT_PULLUP );
+  pinMode( BTN_MENU_PIN, INPUT_PULLUP );
+  pinMode( BTN_GO_PIN, INPUT_PULLUP );
+  pinMode( BTN_STOP_PIN, INPUT_PULLUP );
+  Serial.begin(115200);
+
+  tft.initR(INITR_BLACKTAB);  // Initialize a ST7735S chip, black tab
+  tft.fillScreen(ST7735_BLACK);  // Fill screen with black
+  tft.setRotation(1);
+  setupStaticLCDitems();
+
+  vesc.setSerialPort(&Serial);
+  
+}
+
+void readButtons()
+{
+    static bool last_UP_state,last_DOWN_state,last_MENU_state,last_GO_state,last_STOP_state;
+    last_UP_state = BTN_UP;
+    last_DOWN_state = BTN_DOWN;
+    last_MENU_state = BTN_MENU;
+    last_GO_state = BTN_GO;
+    last_STOP_state = BTN_STOP; 
+
+    BTN_UP = !digitalRead(BTN_UP_PIN);
+    BTN_DOWN = !digitalRead(BTN_DOWN_PIN);
+    BTN_MENU = !digitalRead(BTN_MENU_PIN);
+    BTN_GO = !digitalRead(BTN_GO_PIN);
+    BTN_STOP = !digitalRead(BTN_STOP_PIN);
+
+    if(!last_UP_state && BTN_UP){BTN_UP_RISING = true;} else{ BTN_UP_RISING = false;}
+    if(!last_DOWN_state && BTN_DOWN){BTN_DOWN_RISING = true;} else{ BTN_DOWN_RISING = false;}
+    if(!last_MENU_state && BTN_MENU){BTN_MENU_RISING = true;} else{ BTN_MENU_RISING = false;}
+    if(!last_GO_state && BTN_GO){BTN_GO_RISING = true;} else{ BTN_GO_RISING = false;}
+    if(!last_STOP_state && BTN_STOP){BTN_STOP_RISING = true;} else{ BTN_STOP_RISING = false;}
+}
+
+/*
+  Continous GO:
+  In order to be able to release the GO button and still power the motor,
+  the Continous GO mode was implemented:
+  Start Continous GO:
+  Press the GO Button + Press the UP Button (GO must be first)
+  Stop Continous GO:
+  Press the GO Button
+*/
+void setContinousGoIfBtnCombo()
+{
+    if(BTN_GO & BTN_UP_RISING)
+    {
+        CONTINOUS_GO = true;
+        BTN_UP_RISING = false;
+    }
+    else if(BTN_GO_RISING  || BTN_STOP_RISING)
+    {
+        CONTINOUS_GO = false;
+    }
+}
+
+
+void setThrottleAccordingButtons()
+{
+  if(BTN_UP_RISING)
+  {
+    if(throttle_setpoint + throttle_increment <= throttle_max+0.01)
+    {
+    throttle_setpoint +=throttle_increment;
+    }      
+  }
+  else if(BTN_DOWN_RISING)
+  {
+    if(throttle_setpoint - throttle_increment >= throttle_min)
+    {
+    throttle_setpoint -=throttle_increment;
+    }      
+  }
+}
+
+void printState()
+{
+  Serial.print(" UP_EDGE:");
+  Serial.print(BTN_UP_RISING);
+  Serial.print(" DOWN_EDGE:");
+  Serial.print(BTN_DOWN_RISING);
+  Serial.print(" MENU_EDGE:");
+  Serial.print(BTN_MENU_RISING);
+  Serial.print(" GO:");
+  Serial.print(BTN_GO);
+
+  Serial.print(" Throttle:");
+  Serial.print(throttle_setpoint);
+  Serial.print("\n");
+}
+
+
+
+int interpolateBetweenPercentageIncrements(float batVoltage, float lowerLookup, float upperLookup)
+{
+    float lookupDiff = upperLookup-lowerLookup;
+    float batVoltDiff = batVoltage-lowerLookup;
+
+    return (int)(((float)batPercentageIncrements/lookupDiff)*batVoltDiff);
+}
+
+int getBatPercentage(float batVoltage)
+{
+
+    for(int i= 0; i<nofBatPercentageLookups; i++)
+    {
+        if(i==(nofBatPercentageLookups-1))
+        {
+            return maxBatPercentage;
+        }
+        else if(batVoltage>=batVoltageLookup[i] && batVoltage>=batVoltageLookup[i+1])
+        {
+            continue;
+        }
+        else if(batVoltage>=batVoltageLookup[i] && batVoltage<=batVoltageLookup[i+1])
+        {
+            return (i*batPercentageIncrements)+interpolateBetweenPercentageIncrements(batVoltage,batVoltageLookup[i],batVoltageLookup[i+1]);
+        }
+        else if(batVoltage<=batVoltageLookup[0])
+        {
+            return minBatPercentage;
+        }
+    }
+    return 0;
+}
+
+/*
+LCD Screen: 1.8 inch st7735r spi 128x160 
+
+--------------
+|0 -->160(x)  |
+||            |
+|v 128(y)     |
+--------------
+*/
+void printOnLCD()
+{
+  char stringBuf[10];
+
+  //Throttle  
+  dtostrf(throttle_setpoint*throttle_currentMode_max_current_amps, 3, 0, stringBuf);
+  strcat(stringBuf, "A");
+  tft.setCursor(5, 20);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(3);
+  tft.println(stringBuf);
+
+  //Battery Voltage
+  dtostrf(vesc.data.inpVoltage, 3, 0, stringBuf);
+  strcat(stringBuf, "V");
+  tft.setCursor(5, 60);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(3);
+  tft.println(stringBuf);
+
+  //Battery Percent
+  dtostrf(getBatPercentage(vesc.data.inpVoltage), 3, 0, stringBuf);
+  strcat(stringBuf, "%");
+  tft.setCursor(85, 60);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(3);
+  tft.println(stringBuf);
+
+  //Amerage
+  dtostrf(vesc.data.avgMotorCurrent, 3, 0, stringBuf);
+  strcat(stringBuf, "A");
+  tft.setCursor(85, 20);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(3);
+  tft.println(stringBuf);
+
+  //Speed
+  //RPM 2145[umfangRag] /197.92 [Umfang Motor] = 10.838
+  //MotorWindungen = 9 
+  //2.145m/(10.838*60)=0.0032985790 * 3.6 / 9  = 0.001319431629 --> RPM TO KMH
+
+  //Airwheel motor:
+  //D=0.325m, 15 pole pairs
+  // kmh = (rpm*pi*D*60)/(15*1000)=rpm*(3.14159265359×0.325×60)/(15×1000)=rpm*0.004084070450
+  // RPM is signed by motor direction; the speed limit applies to magnitude.
+  speed_kmh = abs(vesc.data.rpm)*(float)0.004084070450;
+  dtostrf(speed_kmh, 3, 0, stringBuf);
+  tft.setCursor(30, 90);
+  tft.setTextColor(ST7735_WHITE, ST7735_BLACK);
+  tft.setTextSize(4);
+  tft.println(stringBuf);
+
+  //indicateGo
+  if(BTN_GO)
+  {
+      tft.drawRect(0, 0, 160, 128, ST7735_CYAN);  // Draw rectangle (x,y,width,height,color)
+  }
+  else if(CONTINOUS_GO)
+  {
+      tft.drawRect(0, 0, 160, 128, ST7735_RED);  // Draw rectangle (x,y,width,height,color)
+  }
+  else
+  {
+      tft.drawRect(0, 0, 160, 128, ST77XX_BLACK);  // Draw rectangle (x,y,width,height,color)
+  }
+  
+}
+
+void errorBlink()
+{    
+  digitalWrite(LED_BUILTIN, HIGH);
+  delay(200);
+  digitalWrite(LED_BUILTIN, LOW); 
+  delay(200);
+}
+
+void resetSpeedPid()
+{
+  speed_pid_integral = 0;
+  speed_pid_last_speed_kmh = speed_kmh;
+  speed_pid_last_update_ms = millis();
+  speed_pid_initialized = false;
+  throttle = 0;
+}
+
+void freeWheelMotor()
+{
+  if(!motor_freewheel_command_sent)
+  {
+    resetSpeedPid();
+    vesc.setCurrent(0);
+    motor_freewheel_command_sent = true;
+  }
+}
+
+void stopMotor()
+{
+  if(!motor_stop_command_sent)
+  {
+    resetSpeedPid();
+    vesc.setDuty(0);
+    motor_stop_command_sent = true;
+  }
+}
+
+void writeThrottleToVescIfGoPressed()
+{
+  const bool go_pressed = BTN_GO || CONTINOUS_GO;
+
+  if(BTN_STOP)
+  {
+    stopMotor();
+    return;
+  }
+
+
+  if(!go_pressed)
+  {
+    freeWheelMotor();
+    return;
+  }
+
+  motor_stopped = false;
+
+  // Do not let the VESC direction sign turn a reverse-direction reading into
+  // an ever-increasing speed request. Positive current is not a safe reverse
+  // drive command, so remove torque until the wheel is moving forward again.
+  if(vesc.data.rpm < 0)
+  {
+    stopMotor();
+    return;
+  }
+  motor_stop_command_sent = false;
+  motor_freewheel_command_sent = false;
+
+  speed_kmh = (float)vesc.data.rpm * (float)0.004084070450;
+
+  if(!speed_limit_enabled)
+  {
+    resetSpeedPid();
+    throttle = throttle_setpoint;
+    vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
+                        throttle_currentMode_ramp_rate_amps_per_second);
+    return;
+  }
+
+  const unsigned long now_ms = millis();
+  float delta_time_s = (now_ms - speed_pid_last_update_ms) / 1000.0;
+  if(!speed_pid_initialized)
+  {
+    speed_pid_last_speed_kmh = speed_kmh;
+    speed_pid_last_update_ms = now_ms;
+    speed_pid_initialized = true;
+    delta_time_s = 0;
+  }
+
+  // Ignore an unusually long loop interval rather than integrating a stale error.
+  if(delta_time_s < 0.001 || delta_time_s > 0.25)
+  {
+    delta_time_s = 0;
+  }
+
+  const float error = SPEED_LIMIT - speed_kmh;
+  const float derivative = delta_time_s > 0
+                             ? (speed_pid_last_speed_kmh - speed_kmh) / delta_time_s
+                             : 0;
+  const float proportional = speed_pid_kp * error;
+  const float derivative_term = speed_pid_kd * derivative;
+  const float integral_candidate = speed_pid_integral +
+                                   speed_pid_ki * error * delta_time_s;
+  const float requested_output = proportional + integral_candidate + derivative_term;
+  const float output_max = constrain(throttle_setpoint, throttle_min, throttle_max);
+  const float output = constrain(requested_output, 0.0, output_max);
+
+  // Only integrate while unsaturated, or when the error would move the output
+  // back toward the available range.
+  if(requested_output == output ||
+     (requested_output > output_max && error < 0) ||
+     (requested_output < 0 && error > 0))
+  {
+    speed_pid_integral = integral_candidate;
+  }
+  speed_pid_integral = constrain(speed_pid_integral, -throttle_max, throttle_max);
+
+  throttle = constrain(output, 0.0, throttle_max);
+  vesc.setCurrentRamp(throttle*throttle_currentMode_max_current_amps,
+                      throttle_currentMode_ramp_rate_amps_per_second);
+
+  speed_pid_last_speed_kmh = speed_kmh;
+  speed_pid_last_update_ms = now_ms;
+}
+
+/*
+  Press all buttons (UP DOWN and GO) for 5 seconds to toggle 
+  the speed limit (25kmh)
+  If the speedlimit is now enabled, a red dot is displayed as long as
+  the buttons are pressed
+  If the speedlimit is now disabled, a green dot is displayed as long as
+  the buttons are pressed
+*/
+void disableSpeedLimitIfBtnCombo(void)
+{
+    static int timeAllButtonsPressed_ms = 0;
+    static int timeStampNotAllButtonsPressed_ms = 0;
+    static bool toggled = false;
+
+    if(BTN_GO && BTN_UP && BTN_DOWN)
+    {
+      timeAllButtonsPressed_ms = millis() - timeStampNotAllButtonsPressed_ms;   
+    }
+    else
+    {
+      timeStampNotAllButtonsPressed_ms = millis();
+      timeAllButtonsPressed_ms = 0;
+      toggled = false;
+    }  
+
+    if(timeAllButtonsPressed_ms > 5000)
+    {
+      if(toggled == false)
+      {
+        speed_limit_enabled = !speed_limit_enabled;  
+        toggled = true;   
+      }
+    }
+
+    if(speed_limit_enabled)
+    {
+      tft.fillCircle(10, 108, 5, ST7735_RED);
+    }
+    else
+    {
+      tft.fillCircle(10, 108, 5, ST7735_GREEN);
+    }
+}
+
+void loop() {
+  readButtons();
+  setContinousGoIfBtnCombo();
+  setThrottleAccordingButtons();
+  if ( vesc.getVescValues() ) 
+  {
+    delay(10); 
+    writeThrottleToVescIfGoPressed();
+  }
+  else
+  {
+    delay(10); 
+    stopMotor();
+    errorBlink();
+  }
+  //printState(); //Only For debugging!
+  printOnLCD();
+  disableSpeedLimitIfBtnCombo();
+  //delay(5);              
+}
