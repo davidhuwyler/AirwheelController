@@ -347,9 +347,9 @@ void errorBlink()
 update_thottle(float setpoint)
 {  
   if(throttle > setpoint)
-    throttle -= 0.01;
+    throttle -= (setpoint/10);
   if(throttle < setpoint)
-    throttle += 0.01;
+    throttle += (setpoint/10);
 }
 void writeThrottleToVescIfGoPressed()
 {
@@ -368,7 +368,7 @@ void writeThrottleToVescIfGoPressed()
     return;
   }
 
-  speed_kmh = (float)vesc.data.rpm * (float)0.004084070450;
+  speed_kmh = abs(vesc.data.rpm) * (float)0.004084070450;
   if(speed_limit_enabled && speed_kmh >= SPEED_LIMIT)
   {
     vesc.setRPM(SPEED_LIMIT_ERPM);
@@ -428,17 +428,17 @@ void loop() {
   setThrottleAccordingButtons();
   if ( vesc.getVescValues() ) 
   {
-    delay(20); 
+    delay(10); 
     writeThrottleToVescIfGoPressed();
   }
   else
   {
-    delay(20); 
+    delay(10); 
     vesc.setDuty(0);
     errorBlink();
   }
   //printState(); //Only For debugging!
   printOnLCD();
   disableSpeedLimitIfBtnCombo();
-  delay(20);            
+  delay(10);         
 }
