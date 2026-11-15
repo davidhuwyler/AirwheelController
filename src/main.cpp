@@ -1,8 +1,9 @@
 /*
   E-Bike Controller Software
 
-  There are 3 Buttons:
+  There are 4 Buttons:
     GO: Starts the Motor
+    STOP: Stops the Motor
     UP: Increases the motor current if GO (or continous mode) is Only
     DOWN: Decreases the motor current
 
