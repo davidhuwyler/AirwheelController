@@ -395,6 +395,8 @@ void disableSpeedLimitIfBtnCombo(void)
 
     if(BTN_GO && BTN_UP && BTN_DOWN)
     {
+      throttle=0;
+      vesc.setDuty(0);
       timeAllButtonsPressed_ms = millis() - timeStampNotAllButtonsPressed_ms;   
     }
     else
