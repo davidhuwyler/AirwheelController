@@ -62,7 +62,7 @@ bool motor_freewheel_command_sent = false;
 float batteryVoltage = 0;
 
 #define SPEED_LIMIT 5
-#define SPEED_LIMIT_ERPM 1224.268793 // 5kmh /(float)0.004084070450
+#define SPEED_LIMIT_ERPM 1224 // 5kmh /(float)0.004084070450
 bool speed_limit_enabled = true;
 float speed_kmh = 0;
 
@@ -369,10 +369,10 @@ void writeThrottleToVescIfGoPressed()
     return;
   }
 
-  speed_kmh = abs(vesc.data.rpm) * (float)0.004084070450;
-  if(speed_limit_enabled && speed_kmh >= SPEED_LIMIT)
+  if(abs(vesc.data.rpm) >= SPEED_LIMIT_ERPM)
   {
     vesc.setRPM(SPEED_LIMIT_ERPM);
+    return;
   }
 
   update_thottle(throttle_setpoint);
