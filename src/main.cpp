@@ -369,7 +369,7 @@ void writeThrottleToVescIfGoPressed()
     return;
   }
 
-  if(abs(vesc.data.rpm) >= SPEED_LIMIT_ERPM)
+  if((abs(vesc.data.rpm) >= SPEED_LIMIT_ERPM) && speed_limit_enabled)
   {
     vesc.setRPM(SPEED_LIMIT_ERPM);
     return;
